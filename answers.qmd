@@ -1,0 +1,591 @@
+---
+title: "Space"
+subtitle: "Exercise 12 --- PMAP 8551/4551, SEMESTER YEAR"
+author: "YOUR NAME HERE"
+date: "DATE GOES HERE"
+date-format: "long"
+format:
+  html:
+    toc: true
+    knitr:
+      opts_chunk: 
+        dev: "ragg_png"
+        dpi: 300
+  typst:
+    toc: true
+    include-before-body: 
+      text: |
+        #show link: set text(fill: rgb("e16462"))
+
+        // Keep track of previous heading levels
+        #let last-heading-level = state("last-heading-level", 0)
+
+        // Add page breaks before all level 1 headings
+        // Add page breaks before level 2 headings that don't come after level 1
+        #show heading: it => {
+          context {
+            let prev-level = last-heading-level.get()
+
+            if it.level == 1 {
+              pagebreak(weak: true)
+              last-heading-level.update(1)
+            } else if it.level == 2 {
+              if prev-level != 1 {
+                pagebreak(weak: true)
+              }
+              last-heading-level.update(2)
+            } else {
+              last-heading-level.update(it.level)
+            }
+          }
+          it
+        }
+  pdf:
+    toc: true
+  docx:
+    toc: true
+---
+
+# Task 1: Session check-in
+
+::: {.callout-tip title="Answer"}
+Hopefully you wrote some interesting and muddy things!
+:::
+
+
+# Task 2: Households receiving SNAP benefits
+
+## Data description and cleaning
+
+The United States's [Supplemental Nutrition Assistance Program (SNAP)](https://en.wikipedia.org/wiki/Supplemental_Nutrition_Assistance_Program)---colloquially known as food stamps---provides poorer households with monthly food purchasing assistance. This data comes from the US Census Bureau's American Community Survey (ACS) and contains county-level counts of the number of households that have used SNAP benefits in the past 12 months, aggregated across 2019--2023.
+
+This data is a little different from others because I actually provide you with **five datasets** that you'll need to join together in different ways to make different maps.[^cleaning-code]
+
+[^cleaning-code]: For the morbidly curious, [see here for the full data cleaning code](https://github.com/andrewheiss/dataviz-projects_12-space/blob/main/build_data.R). I use the {tidycensus} and {tigris} packages to pull data directly from the US Census and then do a bunch of wrangling and cleaning.
+
+Here's what you have:
+
+`data/snap_2023.csv` *(3222 rows, 10 columns)*
+
+- `GEOID`: The joined state and county FIPS code (e.g., 01001, 01003)
+- `NAME_FULL`: The county name and state
+- `STATEFP`: The state FIPS code (e.g., 01, 02, 04)
+- `STUSPS`: The state name (e.g., Alabama, Alaska, Arizona)
+- `STNAME`: The state abbreviation (e.g., AL, AK, AZ)
+- `REGION`: The [US Census region](https://en.wikipedia.org/wiki/List_of_regions_of_the_United_States) (South, West, Midwest, and Northeast)
+- `DIVISION`: The [US Census division](https://en.wikipedia.org/wiki/List_of_regions_of_the_United_States) (e.g., Middle Atlantic, New England, Pacific)
+- `total_pop`: County population (via [Table B01003](https://censusreporter.org/tables/B01003/) from the US Census's ACS data)
+- `total_households`: Number of households (via [Table B22003_001](https://censusreporter.org/tables/B22003/) from the US Census's ACS data)
+- `snap_households`: Number of that have received food stamps/SNAP in the past 12 months (via [Table B22003_002](https://censusreporter.org/tables/B22003/) from the US Census's ACS data)
+
+`data/regions.csv` *(4 rows, 2 columns)*
+
+- `RGN_ID`: The US Census region ID
+- `REGION`: US Census region
+
+`data/divisions.csv` *(9 rows, 2 columns)*
+
+- `DIV_ID`: The US Census division ID
+- `DIVISION`: US Census division
+
+`data/states/states.shp` *(51 rows, 6 columns)*
+
+- `RGN_ID`: The US Census region ID
+- `DIV_ID`: The US Census division ID
+- `STATEFP`: The state FIPS code (e.g., 01, 02, 04)
+- `STUSPS`: The state name (e.g., Alabama, Alaska, Arizona)
+- `STNAME`: The state abbreviation (e.g., AL, AK, AZ)
+- `geometry`: Geographic data for the state boundaries with a resolution of 1:5 million
+
+`data/states/counties.shp` *(3144 rows, 8 columns)*
+
+- `GEOID`: The joined state and county FIPS code (e.g., 01001, 01003)
+- `NAME`: The county name
+- `NAMELSAD`: The county name with the word "County" included
+- `REGION`: US Census region
+- `DIVISION`: US Census division
+- `STUSPS`: The state name (e.g., Alabama, Alaska, Arizona)
+- `STNAME`: The state abbreviation (e.g., AL, AK, AZ)
+- `geometry`: Geographic data for the county boundaries with a resolution of 1:5 million
+
+The code below loads all the packages and datasets you'll need to use. **You don't need to modify anything in this chunk of code---you only need to run it.**
+
+```{r}
+#| label: load-libraries-data
+#| warning: false
+#| message: false
+
+library(tidyverse) # For ggplot2, dplyr, and friends
+library(sf)        # For working with and plotting geographic data
+library(tigris)    # For shift_geometry()
+library(scales)    # For nicer labels
+
+snap_2023 <- read_csv("data/snap_2023.csv")
+regions_info <- read_csv("data/regions.csv")
+divisions_info <- read_csv("data/divisions.csv")
+states <- read_sf("data/states/states.shp")
+counties <- read_sf("data/counties/counties.shp")
+```
+
+## States and divisions
+
+### Join data
+
+Use `left_join()` to merge the region and division names in `regions_info` and `divisions_info` into `states`. Create a new data frame named `states_with_regions` that looks like this:
+
+```{r}
+#| label: recreate-me-data-states-regions
+#| echo: false
+#| message: false
+#| ref.label: recreation-data-states-regions
+```
+
+**Some hints!**
+
+- The `states` dataset has shared columns that appear in each of the region and division datasets (`RGN_ID` and `DIV_ID`).
+- Don't worry about the exact order of the columns. I moved the `geometry` column to the end here to make it clearer that the new dataset has columns for `REGION` and `DIVISION`. Your `geometry` column might show up in the middle of the columns---that's fine.
+
+::: {.callout-tip title="Answer"}
+
+```{r}
+#| label: recreation-data-states-regions
+#| message: false
+
+states_with_regions <- states |> 
+  left_join(regions_info, by = join_by(RGN_ID)) |> 
+  left_join(divisions_info, by = join_by(DIV_ID))
+
+states_with_regions |>
+  relocate(geometry, .after = last_col())
+```
+
+:::
+
+### Plot joined data
+
+Run the code chunk below to see a plot. It shows a map of the United States with each state filled by its census division. Alaska and Hawai'i have been shifted to better fit in the map.
+
+```{r fig.path="images/"}
+#| label: recreate-me-plot-divisions
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-width: 8
+#| fig-height: 6
+#| ref.label: recreation-plot-divisions
+```
+
+Use `ggplot()` and `geom_sf()` in the chunk below to re-create the plot above using your newly merged `states_with_regions` dataset. **Some hints**:
+
+- You'll need to make a copy of `states_with_regions` that has the states shifted around using `shift_geometry()` ([see the example](https://datavizf25.classes.andrewheiss.com/example/12-example.html#us-map-with-non-continguous-parts))
+- The legend is at the top. Control this with `theme(legend.position = "SOMETHING")`
+- The divisions are filled with the "turbo" palette from viridis (use `scale_fill_viridis_d(option = "SOMETHING")`)
+- The plot uses `theme_void()`
+- The plot is sized at 8 inches wide and 6 inches tall. Use chunk options to match those dimensions.
+- The borders of the states are white and the `linewidth` is set to 0.2
+
+::: {.callout-tip title="Answer"}
+
+```{r}
+#| label: recreation-plot-divisions
+#| message: false
+#| warning: false
+#| fig-width: 8
+#| fig-height: 6
+
+states_with_regions_shifted <- states_with_regions |>
+  shift_geometry()
+
+ggplot() +
+  geom_sf(
+    data = states_with_regions_shifted,
+    aes(fill = DIVISION),
+    linewidth = 0.2,
+    color = "white"
+  ) +
+  scale_fill_viridis_d(option = "turbo") +
+  theme_void() +
+  theme(legend.position = "top")
+```
+
+:::
+
+
+## SNAP use across states
+
+### Summarize data
+
+Use `group_by()` and `summarize()` and `mutate()` to calculate three things in a new dataset named `snap_by_state`:
+
+1. The total number of households in each state
+2. The total number of SNAP-receiving households in each state
+3. The proportion of households that receive SNAP benefits
+
+```{r}
+#| label: recreate-me-data-states-snap
+#| echo: false
+#| message: false
+#| ref.label: recreation-data-states-snap
+```
+
+**Some hints!**
+
+- You'll want to group by the abbreviation column (`STUSPS`)
+- Remember that you can create multiple columns in `summarize()`. Don't try to use two separate `summarize()` functions.
+- Don't calculate `prop_snap` with `summarize()`; use `mutate()`
+
+::: {.callout-tip title="Answer"}
+
+```{r}
+#| label: recreation-data-states-snap
+#| message: false
+
+snap_by_state <- snap_2023 |> 
+  group_by(STUSPS) |> 
+  summarize(households = sum(total_households), snap = sum(snap_households)) |> 
+  mutate(prop_snap = snap / households)
+snap_by_state
+```
+
+:::
+
+### Join data and plot it
+
+Run the code chunk below to see a plot. It shows a map of the United States with each state filled by the proportion of households that receive SNAP benefits.
+
+```{r fig.path="images/"}
+#| label: recreate-me-plot-state-snap
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-width: 8
+#| fig-height: 6
+#| ref.label: recreation-plot-state-snap
+```
+
+Use `left_join()`, `ggplot()` and `geom_sf()` in the chunk below to re-create the plot above using your newly merged `snap_by_state` dataset. **Some hints**:
+
+- You'll need to left join `snap_by_state` into `states`.
+- You'll need to make a copy of that joined dataset that has the states shifted around using `shift_geometry()` ([see the example](https://datavizf25.classes.andrewheiss.com/example/12-example.html#us-map-with-non-continguous-parts))
+- The legend is at the bottom. Control this with `theme(legend.position = "SOMETHING")`
+- Remember that you can add linebreaks to labels with `\n`, like `"Proportion of households\nusing SNAP"`
+- The states are filled with the "plasma" palette from viridis (use `scale_fill_viridis_d(option = "SOMETHING")`)
+- The plot uses `theme_void()`
+- The plot is sized at 6 inches wide and 3.8 inches tall. Use chunk options to match those dimensions.
+- The borders of the states are white and the `linewidth` is set to 0.1
+
+::: {.callout-tip title="Answer"}
+
+```{r}
+#| label: recreation-plot-state-snap
+#| message: false
+#| warning: false
+#| fig-width: 6
+#| fig-height: 3.8
+
+states_with_snap <- states |>
+  left_join(snap_by_state, by = join_by(STUSPS)) |>
+  shift_geometry()
+
+ggplot() +
+  geom_sf(
+    data = states_with_snap,
+    aes(fill = prop_snap),
+    linewidth = 0.1,
+    color = "white"
+  ) +
+  scale_fill_viridis_c(option = "plasma", labels = label_percent()) +
+  labs(fill = "Proportion of households\nusing SNAP") +
+  theme_void() +
+  theme(legend.position = "bottom")
+```
+
+:::
+
+## SNAP use across counties in one division
+
+### Summarize, join, and filter data
+
+Prepare your data for plotting by doing these things:
+
+1. Create a new dataset based on `snap_2023` and call it something like `snap_2023_props` (or whatever you want). Use `mutate()` to calculate the proportion of households that receive SNAP benefits in each county in `snap_2023`. You don't need to group or summarize—the data is already measured at a county level.
+
+2. Take `counties` and join your new `snap_2023_props` to it with `left_join()`. Name the new dataset something like `counties_with_snap` (or whatever you want).
+
+3. Filter that new dataset to include just one division (any division except Mountain, since that's the example here). Name it something like `counties_DIVISION` (but use the division name, not `DIVISION`)
+
+4. Create a new dataset named `state_DIVISON` (but use the division name, not `DIVISION`) that's based on `states_with_regions`, but filtered to only include the division you're interested in.
+
+In the end, you should have a few new datasets that look something like this:
+
+```{r}
+#| label: recreation-data-counties-snap
+#| include: false
+
+snap_2023_props <- snap_2023 |> 
+  mutate(prop_snap = snap_households / total_households)
+snap_2023_props
+
+counties_with_snap <- counties |> 
+  left_join(snap_2023_props, by = join_by(GEOID, REGION, DIVISION, STUSPS, STNAME))
+
+counties_mountain <- counties_with_snap |> 
+  filter(DIVISION == "Mountain")
+counties_mountain
+
+states_mountain <- states_with_regions |> 
+  filter(DIVISION == "Mountain")
+states_mountain
+```
+
+```{r}
+#| message: false
+#| echo: true
+snap_2023_props
+
+counties_mountain
+
+states_mountain
+```
+
+::: {.callout-tip title="Answer"}
+
+```{r}
+#| label: recreate-me-data-counties-snap
+#| echo: true
+#| eval: false
+#| message: false
+#| ref.label: recreation-data-counties-snap
+```
+
+:::
+
+
+### Join data and plot it
+
+Run the code chunk below to see a plot. It shows a map of the Mountain division of the United States with each county filled by the proportion of households that receive SNAP benefits, with state borders drawn in white.
+
+```{r fig.path="images/"}
+#| label: recreate-me-plot-county-snap
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-width: 4
+#| fig-height: 5
+#| out-width: "80%"
+#| fig-align: "center"
+#| ref.label: recreation-plot-county-snap
+```
+
+Use `ggplot()` and `geom_sf()` in the chunk below to create a **similar** plot for a **different** division using the datasets you made earlier. *DO NOT USE THE MOUNTAIN DIVISION*.
+
+**Some hints**:
+
+- You'll need to use two `geom_sf()` layers. One with the `counties_DIVISION` with counties filled by the proportion of households using SNAP (with `linewidth = 0.1` and `color = "gray50"`), and one with `states_DIVISION` with unfilled states (`fill = NA`) with thicker white borders (`color = "white", linewidth = SOMETHING`)
+- If you're using the Pacific region, you'll either want to shift the states with `shift_geometry()` or filter out Alaska and Hawai'i
+- The legend is at the bottom. Control this with `theme(legend.position = "SOMETHING")`
+- Remember that you can add linebreaks to labels with `\n`, like `"Proportion of households\nusing SNAP"`
+- The states are filled with the "plasma" palette from viridis (use `scale_fill_viridis_d(option = "SOMETHING")`)
+- The plot uses `theme_void()`
+- Use chunk options to choose appropriate dimensions for the plot
+- The borders of the states are white and the `linewidth` is set to 0.1
+
+::: {.callout-tip title="Answer"}
+
+```{r}
+#| label: recreation-plot-county-snap
+#| message: false
+#| warning: false
+#| fig-width: 4
+#| fig-height: 5
+#| out-width: "80%"
+#| fig-align: "center"
+
+ggplot() +
+  geom_sf(
+    data = counties_mountain,
+    aes(fill = prop_snap),
+    linewidth = 0.1,
+    color = "grey50"
+  ) +
+  geom_sf(data = states_mountain, fill = NA, color = "white", linewidth = 0.4) +
+  scale_fill_viridis_c(option = "plasma", labels = label_percent()) +
+  labs(fill = "Proportion of households\nusing SNAP") +
+  theme_void() +
+  theme(legend.position = "bottom")
+```
+
+:::
+
+# Task 3: Extension -- your own personal map!
+
+Draw your own map with your own points. This could be a map of places you've lived, or a map of places you've visited, or a map of places you want to visit. Anything!
+
+The only requirement is that you find an appropriate shapefile (states, counties, world, etc.), collect latitude and longitude data from Google Maps, and plot the points (with or without labels) on a map. Use multiple shapefiles if you want—add roads, rivers, lakes, whatever. Basically follow the code from the example in the section named ["Making your own geocoded data"](https://datavizf25.classes.andrewheiss.com/example/12-example.html#making-your-own-geocoded-data). Make sure you choose an appropriate projection.
+
+The example page has links to a bunch of different shapefiles. You can also use [the {rnaturalearth} package](https://github.com/ropensci/rnaturalearth) to get country-level world data from Natural Earth without needing to download any shapefiles. Like, look how easy this is! (Obviously this code can't be your entire extension—you'd need to filter it or do *something* to it.)
+
+```r
+library(rnaturalearth)
+
+world <- ne_countries(scale = 110) |> 
+  filter(admin != "Antarctica")
+
+ggplot() + 
+  geom_sf(data = world) + 
+  coord_sf(crs = "+proj=robin") +
+  theme_void()
+```
+
+You can also use the `states` shapefile that you've been working with already here.
+
+**This is your chance to play around and explore. Do something neat.**
+
+::: {.callout-tip title="Answer"}
+
+Hopefully you did something neat! Here's something I did (and phewww it's complex; I've been trying to take these extenions seriously myself!):
+
+:::
+
+```{r}
+#| label: extension
+#| message: false
+#| warning: false
+#| fig-width: 10
+#| fig-height: 3.63
+
+library(tidyverse)
+library(sf)
+library(rnaturalearth)
+library(ggtext)
+
+clr_ocean <- "#d9f0ff"
+clr_land <- "#facba6"
+
+world <- ne_countries(scale = 10) |>
+  filter(admin != "Antarctica")
+
+places <- tribble(
+  ~city                    , ~lat       , ~long        , ~nudge_x , ~nudge_y , ~period,
+  "Provo, Utah"            , 40.248674  , -111.649261  , -1400000 ,        0 , "1984; 1993–2003;<br>2006–2008;<br>2010–2012;<br>2017–2019",
+  "Rome, Italy"            , 41.970477  ,   12.544698  ,        0 ,  -700000 , "2003–2005",
+  "Provo, Utah"            , 40.248674  , -111.649261  , NA       , NA       , NA,
+  "Amman, Jordan"          , 32.015175  ,   35.873671  ,  1400000 ,   250000 , "2006",
+  "Provo, Utah"            , 40.248674  , -111.649261  , NA       , NA       , NA,
+  "Cairo, Egypt"           , 29.9545395 ,   31.2657007 ,        0 ,  -700000 , "2008–2010",
+  "Provo, Utah"            , 40.248674  , -111.649261  , NA       , NA       , NA,
+  "Durham, North Carolina" , 35.999115  ,  -78.943701  ,  2000000 ,   250000 , "1985–1993; 2012–2017",
+  "Provo, Utah"            , 40.248674  , -111.649261  , NA       , NA       , NA,
+  "Atlanta, Georgia"       , 33.748955  ,  -84.388099  ,        0 ,  -700000 , "2019–now",
+) |>
+  mutate(order = 1:n()) |>
+  mutate(
+    label = glue::glue(
+      "**{city}**<br><span style='font-size: 9pt; color: #666666;'>{period}</span>"
+    )
+  ) |>
+  st_as_sf(coords = c("long", "lat"), crs = st_crs("EPSG:4326"))
+
+# Plot great circle routes!
+# Adapted from Jesse Sadler: 
+# https://www.jessesadler.com/post/great-circles-sp-sf/#great-circles-with-sf
+#
+# Extract just the coordinates for each point
+coords <- st_coordinates(places) |>
+  as_tibble() |>
+  rename(long = X, lat = Y)
+
+# Make a dataframe of all the paried cities
+# (i.e. City A → City B, City B → City C, etc.)
+pairs <- places |>
+  arrange(order) |>
+  st_drop_geometry() |>
+  mutate(
+    long = coords$long,
+    lat = coords$lat,
+    next_long = lead(long),
+    next_lat = lead(lat),
+    next_city = lead(city),
+    next_order = lead(order)
+  ) |>
+  filter(!is.na(next_long))
+
+# Create a linestring between each pair of points
+pairs_paths <- pairs |>
+  mutate(
+    direction = ifelse(city == "Provo, Utah", "out", "in"),  # Maybe use this?
+    geometry = pmap(
+      list(long, lat, next_long, next_lat),
+      \(long, lat, next_long, next_lat) {
+        line <- matrix(c(long, next_long, lat, next_lat), ncol = 2) |>
+          st_linestring() |>
+          st_sfc(crs = st_crs("EPSG:4326")) |>
+          st_segmentize(units::set_units(50, km))
+
+        # Trim the line a little at both ends to create a buffer
+        line <- st_cast(line, "POINT")
+        # Make sure there are enough points to trim
+        if (length(line) > 10) {
+          # Remove 5 segments from the start and end
+          # Each segment is 50 km, so this makes a buffer of ≈250 km
+          line <- line[6:(length(line) - 5)] |>
+            st_combine() |>
+            st_cast("LINESTRING")
+        }
+
+        line
+      }
+    )
+  ) |>
+  mutate(geometry = list_c(geometry)) |>
+  st_sf()
+
+# Make a little bounding box with these specific coordinates to to zoom in
+bbox <- st_bbox(
+  c(xmin = -125, xmax = 57, ymin = 20, ymax = 70),
+  crs = st_crs("EPSG:4326")
+) |>
+  st_as_sfc() |>
+  st_transform("+proj=eqearth") |>
+  st_bbox()
+
+# Plot this puppy
+ggplot() +
+  geom_sf(data = world, fill = clr_land, linewidth = 0) +
+  geom_sf(
+    data = pairs_paths,
+    # I tried coloring by direction but didn't like it
+    # aes(color = direction),
+    color = "#d43511",
+    linewidth = 0.8,
+    arrow = arrow(length = unit(0.2, "cm"))
+  ) +
+  geom_sf(data = places) +
+  geom_richtext(
+    data = drop_na(places, period),
+    aes(label = label, geometry = geometry),
+    stat = "sf_coordinates",
+    nudge_x = drop_na(places, period) |> pull(nudge_x),
+    nudge_y = drop_na(places, period) |> pull(nudge_y),
+    family = "Inter"
+  ) +
+  coord_sf(
+    crs = "+proj=eqearth",
+    xlim = c(bbox["xmin"], bbox["xmax"]),
+    ylim = c(bbox["ymin"], bbox["ymax"])
+  ) +
+  labs(
+    title = "Everywhere I’ve lived, 1984–today",
+    subtitle = "Utah is a gosh dang magnet that keeps pulling me back"
+  ) +
+  theme_void(base_family = "Inter") +
+  theme(
+    panel.background = element_rect(fill = clr_ocean),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = rel(1.5)),
+    plot.subtitle = element_text(
+      hjust = 0.5,
+      size = rel(1.1),
+      margin = margin(t = 5, b = 5)
+    )
+  )
+```

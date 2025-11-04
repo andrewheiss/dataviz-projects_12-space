@@ -1,0 +1,389 @@
+---
+title: "Space"
+subtitle: "Exercise 12 --- PMAP 8551/4551, SEMESTER YEAR"
+author: "YOUR NAME HERE"
+date: "DATE GOES HERE"
+date-format: "long"
+format:
+  html:
+    toc: true
+  typst:
+    toc: true
+  pdf:
+    toc: true
+  docx:
+    toc: true
+---
+
+# Task 1: Session check-in
+
+Three interesting or exciting things:
+
+1. Something
+2. Something
+3. Something
+
+Three muddy or unclear things:
+
+1. Something
+2. Something
+3. Something
+
+
+# Task 2: Households receiving SNAP benefits
+
+## Data description and cleaning
+
+The United States's [Supplemental Nutrition Assistance Program (SNAP)](https://en.wikipedia.org/wiki/Supplemental_Nutrition_Assistance_Program)---colloquially known as food stamps---provides poorer households with monthly food purchasing assistance. This data comes from the US Census Bureau's American Community Survey (ACS) and contains county-level counts of the number of households that have used SNAP benefits in the past 12 months, aggregated across 2019--2023.
+
+This data is a little different from others because I actually provide you with **five datasets** that you'll need to join together in different ways to make different maps.[^cleaning-code]
+
+[^cleaning-code]: For the morbidly curious, [see here for the full data cleaning code](https://github.com/andrewheiss/dataviz-projects_12-space/blob/main/build_data.R). I use the {tidycensus} and {tigris} packages to pull data directly from the US Census and then do a bunch of wrangling and cleaning.
+
+Here's what you have:
+
+`data/snap_2023.csv` *(3222 rows, 10 columns)*
+
+- `GEOID`: The joined state and county FIPS code (e.g., 01001, 01003)
+- `NAME_FULL`: The county name and state
+- `STATEFP`: The state FIPS code (e.g., 01, 02, 04)
+- `STUSPS`: The state name (e.g., Alabama, Alaska, Arizona)
+- `STNAME`: The state abbreviation (e.g., AL, AK, AZ)
+- `REGION`: The [US Census region](https://en.wikipedia.org/wiki/List_of_regions_of_the_United_States) (South, West, Midwest, and Northeast)
+- `DIVISION`: The [US Census division](https://en.wikipedia.org/wiki/List_of_regions_of_the_United_States) (e.g., Middle Atlantic, New England, Pacific)
+- `total_pop`: County population (via [Table B01003](https://censusreporter.org/tables/B01003/) from the US Census's ACS data)
+- `total_households`: Number of households (via [Table B22003_001](https://censusreporter.org/tables/B22003/) from the US Census's ACS data)
+- `snap_households`: Number of that have received food stamps/SNAP in the past 12 months (via [Table B22003_002](https://censusreporter.org/tables/B22003/) from the US Census's ACS data)
+
+`data/regions.csv` *(4 rows, 2 columns)*
+
+- `RGN_ID`: The US Census region ID
+- `REGION`: US Census region
+
+`data/divisions.csv` *(9 rows, 2 columns)*
+
+- `DIV_ID`: The US Census division ID
+- `DIVISION`: US Census division
+
+`data/states/states.shp` *(51 rows, 6 columns)*
+
+- `RGN_ID`: The US Census region ID
+- `DIV_ID`: The US Census division ID
+- `STATEFP`: The state FIPS code (e.g., 01, 02, 04)
+- `STUSPS`: The state name (e.g., Alabama, Alaska, Arizona)
+- `STNAME`: The state abbreviation (e.g., AL, AK, AZ)
+- `geometry`: Geographic data for the state boundaries with a resolution of 1:5 million
+
+`data/states/counties.shp` *(3144 rows, 8 columns)*
+
+- `GEOID`: The joined state and county FIPS code (e.g., 01001, 01003)
+- `NAME`: The county name
+- `NAMELSAD`: The county name with the word "County" included
+- `REGION`: US Census region
+- `DIVISION`: US Census division
+- `STUSPS`: The state name (e.g., Alabama, Alaska, Arizona)
+- `STNAME`: The state abbreviation (e.g., AL, AK, AZ)
+- `geometry`: Geographic data for the county boundaries with a resolution of 1:5 million
+
+The code below loads all the packages and datasets you'll need to use. **You don't need to modify anything in this chunk of code---you only need to run it.**
+
+```{r}
+#| label: load-libraries-data
+#| warning: false
+#| message: false
+
+library(tidyverse) # For ggplot2, dplyr, and friends
+library(sf)        # For working with and plotting geographic data
+library(tigris)    # For shift_geometry()
+library(scales)    # For nicer labels
+
+snap_2023 <- read_csv("data/snap_2023.csv")
+regions_info <- read_csv("data/regions.csv")
+divisions_info <- read_csv("data/divisions.csv")
+states <- read_sf("data/states/states.shp")
+counties <- read_sf("data/counties/counties.shp")
+```
+
+## States and divisions
+
+### Join data
+
+Use `left_join()` to merge the region and division names in `regions_info` and `divisions_info` into `states`. Create a new data frame named `states_with_regions` that looks like this:
+
+```r
+#> Simple feature collection with 51 features and 7 fields
+#> Geometry type: MULTIPOLYGON
+#> Dimension:     XY
+#> Bounding box:  xmin: -179.1473 ymin: 18.91314 xmax: 179.7785 ymax: 71.35256
+#> Geodetic CRS:  NAD83
+#> # A tibble: 51 × 8
+#>    RGN_ID DIV_ID STATEFP STUSPS STNAME REGION DIVISION                  geometry
+#>     <dbl>  <dbl> <chr>   <chr>  <chr>  <chr>  <chr>           <MULTIPOLYGON [°]>
+#>  1      4      8 35      NM     New M… West   Mountain (((-109.0502 31.48, -109…
+#>  2      3      7 48      TX     Texas  South  West So… (((-106.6455 31.89867, -…
+#>  3      3      6 21      KY     Kentu… South  East So… (((-89.40565 36.52817, -…
+#>  4      2      3 39      OH     Ohio   Midwe… East No… (((-82.7328 41.60432, -8…
+#>  5      3      5 13      GA     Georg… South  South A… (((-85.60516 34.98468, -…
+#>  6      3      7 05      AR     Arkan… South  West So… (((-94.61792 36.49941, -…
+#>  7      4      9 41      OR     Oregon West   Pacific  (((-124.5524 42.84057, -…
+#>  8      1      2 42      PA     Penns… North… Middle … (((-80.51989 40.90666, -…
+#>  9      2      4 29      MO     Misso… Midwe… West No… (((-95.77355 40.5782, -9…
+#> 10      3      5 37      NC     North… South  South A… (((-75.72681 35.93584, -…
+#> # ℹ 41 more rows
+```
+
+**Some hints!**
+
+- The `states` dataset has shared columns that appear in each of the region and division datasets (`RGN_ID` and `DIV_ID`).
+- Don't worry about the exact order of the columns. I moved the `geometry` column to the end here to make it clearer that the new dataset has columns for `REGION` and `DIVISION`. Your `geometry` column might show up in the middle of the columns---that's fine.
+
+```{r}
+#| label: recreate-me-data-states-regions
+
+# Do stuff here
+```
+
+### Plot joined data
+
+Run the code chunk below to see a plot. It shows a map of the United States with each state filled by its census division. Alaska and Hawai'i have been shifted to better fit in the map.
+
+```{r}
+#| label: recreate-me-show-plot-divisions
+#| message: false
+#| echo: false
+#| out-width: "100%"
+
+knitr::include_graphics("images/recreate-me-plot-divisions-1.png")
+```
+
+Use `ggplot()` and `geom_sf()` in the chunk below to re-create the plot above using your newly merged `states_with_regions` dataset. **Some hints**:
+
+- You'll need to make a copy of `states_with_regions` that has the states shifted around using `shift_geometry()` ([see the example](https://datavizf25.classes.andrewheiss.com/example/12-example.html#us-map-with-non-continguous-parts))
+- The legend is at the top. Control this with `theme(legend.position = "SOMETHING")`
+- The divisions are filled with the "turbo" palette from viridis (use `scale_fill_viridis_d(option = "SOMETHING")`)
+- The plot uses `theme_void()`
+- The plot is sized at 8 inches wide and 6 inches tall. Use chunk options to match those dimensions.
+- The borders of the states are white and the `linewidth` is set to 0.2
+
+```{r}
+#| label: recreate-me-plot-divisions
+
+# Do stuff here
+```
+
+## SNAP use across states
+
+### Summarize data
+
+Use `group_by()` and `summarize()` and `mutate()` to calculate three things in a new dataset named `snap_by_state`:
+
+1. The total number of households in each state
+2. The total number of SNAP-receiving households in each state
+3. The proportion of households that receive SNAP benefits
+
+```r
+#> # A tibble: 52 × 4
+#>    STUSPS households    snap prop_snap
+#>    <chr>       <dbl>   <dbl>     <dbl>
+#>  1 AK         267865   27289    0.102 
+#>  2 AL        1969105  267155    0.136 
+#>  3 AR        1189160  124380    0.105 
+#>  4 AZ        2796790  282772    0.101 
+#>  5 CA       13434847 1526052    0.114 
+#>  6 CO        2325576  186848    0.0803
+#>  7 CT        1420170  165735    0.117 
+#>  8 DC         321556   42590    0.132 
+#>  9 DE         396209   43021    0.109 
+#> 10 FL        8550911 1078978    0.126 
+#> # ℹ 42 more rows
+```
+
+**Some hints!**
+
+- You'll want to group by the abbreviation column (`STUSPS`)
+- Remember that you can create multiple columns in `summarize()`. Don't try to use two separate `summarize()` functions.
+- Don't calculate `prop_snap` with `summarize()`; use `mutate()`
+
+```{r}
+#| label: recreate-me-data-states-snap
+
+# Do stuff here
+```
+
+
+### Join data and plot it
+
+Run the code chunk below to see a plot. It shows a map of the United States with each state filled by the proportion of households that receive SNAP benefits.
+
+```{r}
+#| label: recreate-me-show-plot-state-snap
+#| message: false
+#| echo: false
+#| out-width: "100%"
+
+knitr::include_graphics("images/recreate-me-plot-state-snap-1.png")
+```
+
+Use `left_join()`, `ggplot()` and `geom_sf()` in the chunk below to re-create the plot above using your newly merged `snap_by_state` dataset. **Some hints**:
+
+- You'll need to left join `snap_by_state` into `states`.
+- You'll need to make a copy of that joined dataset that has the states shifted around using `shift_geometry()` ([see the example](https://datavizf25.classes.andrewheiss.com/example/12-example.html#us-map-with-non-continguous-parts))
+- The legend is at the bottom. Control this with `theme(legend.position = "SOMETHING")`
+- Remember that you can add linebreaks to labels with `\n`, like `"Proportion of households\nusing SNAP"`
+- The states are filled with the "plasma" palette from viridis (use `scale_fill_viridis_d(option = "SOMETHING")`)
+- The plot uses `theme_void()`
+- The plot is sized at 6 inches wide and 3.8 inches tall. Use chunk options to match those dimensions.
+- The borders of the states are white and the `linewidth` is set to 0.1
+
+```{r}
+#| label: recreate-me-plot-state-snap
+
+# Do stuff here
+```
+
+## SNAP use across counties in one division
+
+### Summarize, join, and filter data
+
+Prepare your data for plotting by doing these things:
+
+1. Create a new dataset based on `snap_2023` and call it something like `snap_2023_props` (or whatever you want). Use `mutate()` to calculate the proportion of households that receive SNAP benefits in each county in `snap_2023`. You don't need to group or summarize—the data is already measured at a county level.
+
+2. Take `counties` and join your new `snap_2023_props` to it with `left_join()`. Name the new dataset something like `counties_with_snap` (or whatever you want).
+
+3. Filter that new dataset to include just one division (any division except Mountain, since that's the example here). Name it something like `counties_DIVISION` (but use the division name, not `DIVISION`)
+
+4. Create a new dataset named `state_DIVISON` (but use the division name, not `DIVISION`) that's based on `states_with_regions`, but filtered to only include the division you're interested in.
+
+In the end, you should have a few new datasets that look something like this:
+
+```r
+snap_2023_props
+#> # A tibble: 3,222 × 11
+#>    GEOID NAME_FULL               STATEFP STUSPS STNAME REGION DIVISION total_pop
+#>    <chr> <chr>                   <chr>   <chr>  <chr>  <chr>  <chr>        <dbl>
+#>  1 01001 Autauga County, Alabama 01      AL     Alaba… South  East So…     59285
+#>  2 01003 Baldwin County, Alabama 01      AL     Alaba… South  East So…    239945
+#>  3 01005 Barbour County, Alabama 01      AL     Alaba… South  East So…     24757
+#>  4 01007 Bibb County, Alabama    01      AL     Alaba… South  East So…     22152
+#>  5 01009 Blount County, Alabama  01      AL     Alaba… South  East So…     59292
+#>  6 01011 Bullock County, Alabama 01      AL     Alaba… South  East So…     10157
+#>  7 01013 Butler County, Alabama  01      AL     Alaba… South  East So…     18807
+#>  8 01015 Calhoun County, Alabama 01      AL     Alaba… South  East So…    116141
+#>  9 01017 Chambers County, Alaba… 01      AL     Alaba… South  East So…     34450
+#> 10 01019 Cherokee County, Alaba… 01      AL     Alaba… South  East So…     25224
+#> # ℹ 3,212 more rows
+#> # ℹ 3 more variables: total_households <dbl>, snap_households <dbl>,
+#> #   prop_snap <dbl>
+
+counties_mountain
+#> Simple feature collection with 281 features and 13 fields
+#> Geometry type: MULTIPOLYGON
+#> Dimension:     XY
+#> Bounding box:  xmin: -120.0057 ymin: 31.33218 xmax: -102.0415 ymax: 49.00115
+#> Geodetic CRS:  NAD83
+#> # A tibble: 281 × 14
+#>    GEOID NAME   NAMELSAD REGION DIVISION STUSPS STNAME                  geometry
+#>  * <chr> <chr>  <chr>    <chr>  <chr>    <chr>  <chr>         <MULTIPOLYGON [°]>
+#>  1 08089 Otero  Otero C… West   Mountain CO     Color… (((-104.0594 37.87501, -…
+#>  2 32003 Clark  Clark C… West   Mountain NV     Nevada (((-115.8969 36.84208, -…
+#>  3 04007 Gila   Gila Co… West   Mountain AZ     Arizo… (((-111.7207 34.1617, -1…
+#>  4 16065 Madis… Madison… West   Mountain ID     Idaho  (((-111.9775 43.79724, -…
+#>  5 16049 Idaho  Idaho C… West   Mountain ID     Idaho  (((-116.7945 45.85614, -…
+#>  6 08065 Lake   Lake Co… West   Mountain CO     Color… (((-106.5803 39.10216, -…
+#>  7 30051 Liber… Liberty… West   Mountain MT     Monta… (((-111.409 48.21954, -1…
+#>  8 08001 Adams  Adams C… West   Mountain CO     Color… (((-105.0533 39.85676, -…
+#>  9 35011 De Ba… De Baca… West   Mountain NM     New M… (((-104.8917 34.34704, -…
+#> 10 04015 Mohave Mohave … West   Mountain AZ     Arizo… (((-114.7556 36.08717, -…
+#> # ℹ 271 more rows
+#> # ℹ 6 more variables: NAME_FULL <chr>, STATEFP <chr>, total_pop <dbl>,
+#> #   total_households <dbl>, snap_households <dbl>, prop_snap <dbl>
+
+states_mountain
+#> Simple feature collection with 8 features and 7 fields
+#> Geometry type: MULTIPOLYGON
+#> Dimension:     XY
+#> Bounding box:  xmin: -120.0057 ymin: 31.33218 xmax: -102.0415 ymax: 49.00115
+#> Geodetic CRS:  NAD83
+#> # A tibble: 8 × 8
+#>   RGN_ID DIV_ID STATEFP STUSPS STNAME                   geometry REGION DIVISION
+#> *  <dbl>  <dbl> <chr>   <chr>  <chr>          <MULTIPOLYGON [°]> <chr>  <chr>   
+#> 1      4      8 35      NM     New Me… (((-109.0502 31.48, -109… West   Mountain
+#> 2      4      8 49      UT     Utah    (((-114.053 37.59278, -1… West   Mountain
+#> 3      4      8 56      WY     Wyoming (((-111.0569 44.86666, -… West   Mountain
+#> 4      4      8 16      ID     Idaho   (((-117.2427 44.39655, -… West   Mountain
+#> 5      4      8 32      NV     Nevada  (((-120.0057 39.22866, -… West   Mountain
+#> 6      4      8 30      MT     Montana (((-116.049 48.48102, -1… West   Mountain
+#> 7      4      8 04      AZ     Arizona (((-114.7997 32.59362, -… West   Mountain
+#> 8      4      8 08      CO     Colora… (((-109.0603 38.59933, -… West   Mountain
+```
+
+```{r}
+#| label: recreate-me-data-counties-snap
+
+# Do stuff here
+```
+
+### Join data and plot it
+
+Run the code chunk below to see a plot. It shows a map of the Mountain division of the United States with each county filled by the proportion of households that receive SNAP benefits, with state borders drawn in white.
+
+```{r}
+#| label: recreate-me-show-plot-county-snap
+#| message: false
+#| echo: false
+#| out-width: "70%"
+#| fig-align: "center"
+
+knitr::include_graphics("images/recreate-me-plot-county-snap-1.png")
+```
+
+Use `ggplot()` and `geom_sf()` in the chunk below to create a **similar** plot for a **different** division using the datasets you made earlier. *DO NOT USE THE MOUNTAIN DIVISION*.
+
+**Some hints**:
+
+- You'll need to use two `geom_sf()` layers. One with the `counties_DIVISION` with counties filled by the proportion of households using SNAP (with `linewidth = 0.1` and `color = "gray50"`), and one with `states_DIVISION` with unfilled states (`fill = NA`) with thicker white borders (`color = "white", linewidth = SOMETHING`)
+- If you're using the Pacific region, you'll either want to shift the states with `shift_geometry()` or filter out Alaska and Hawai'i
+- The legend is at the bottom. Control this with `theme(legend.position = "SOMETHING")`
+- Remember that you can add linebreaks to labels with `\n`, like `"Proportion of households\nusing SNAP"`
+- The states are filled with the "plasma" palette from viridis (use `scale_fill_viridis_d(option = "SOMETHING")`)
+- The plot uses `theme_void()`
+- Use chunk options to choose appropriate dimensions for the plot
+- The borders of the states are white and the `linewidth` is set to 0.1
+
+```{r}
+#| label: recreate-me-plot-county-snap
+
+# Do stuff here
+```
+
+
+# Task 3: Extension -- your own personal map!
+
+Draw your own map with your own points. This could be a map of places you've lived, or a map of places you've visited, or a map of places you want to visit. Anything!
+
+The only requirement is that you find an appropriate shapefile (states, counties, world, etc.), collect latitude and longitude data from Google Maps, and plot the points (with or without labels) on a map. Use multiple shapefiles if you want—add roads, rivers, lakes, whatever. Basically follow the code from the example in the section named ["Making your own geocoded data"](https://datavizf25.classes.andrewheiss.com/example/12-example.html#making-your-own-geocoded-data). Make sure you choose an appropriate projection.
+
+The example page has links to a bunch of different shapefiles. You can also use [the {rnaturalearth} package](https://github.com/ropensci/rnaturalearth) to get country-level world data from Natural Earth without needing to download any shapefiles. Like, look how easy this is! (Obviously this code can't be your entire extension—you'd need to filter it or do *something* to it.)
+
+```r
+library(rnaturalearth)
+
+world <- ne_countries(scale = 110) |> 
+  filter(admin != "Antarctica")
+
+ggplot() + 
+  geom_sf(data = world) + 
+  coord_sf(crs = "+proj=robin") +
+  theme_void()
+```
+
+You can also use the `states` shapefile that you've been working with already here.
+
+**This is your chance to play around and explore. Do something neat.**
+
+```{r}
+#| label: extension
+
+# Do stuff here
+```
