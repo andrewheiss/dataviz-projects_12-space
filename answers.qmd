@@ -11,11 +11,26 @@ format:
       opts_chunk: 
         dev: "ragg_png"
         dpi: 300
+        fig-align: center
   typst:
     toc: true
+    toc-title: Contents
+    output-file: PREFIX_12-exercise.pdf
+    pdf-standard: ua-1
+    callout-appearance: minimal
+    include-in-header: 
+      text: |
+        // TOC stuff
+        // Make the title centered and slightly smaller than a full heading
+        #show outline: it => {
+          show heading: it => align(center, text(size: 0.75em, it))
+          it
+        }
     include-before-body: 
       text: |
-        #show link: set text(fill: rgb("e16462"))
+        // Color links with purple from viridis plasma: 
+        // viridisLite::viridis(8, option = "plasma", begin = 0.1, end = 0.9)[3]
+        #show link: set text(fill: rgb("9a169f"))
 
         // Keep track of previous heading levels
         #let last-heading-level = state("last-heading-level", 0)
@@ -168,11 +183,8 @@ Run the code chunk below to see a plot. It shows a map of the United States with
 ```{r fig.path="images/"}
 #| label: recreate-me-plot-divisions
 #| echo: false
-#| message: false
-#| warning: false
-#| fig-width: 8
-#| fig-height: 6
 #| ref.label: recreation-plot-divisions
+#| opts.label: true
 ```
 
 Use `ggplot()` and `geom_sf()` in the chunk below to re-create the plot above using your newly merged `states_with_regions` dataset. **Some hints**:
@@ -192,6 +204,12 @@ Use `ggplot()` and `geom_sf()` in the chunk below to re-create the plot above us
 #| warning: false
 #| fig-width: 8
 #| fig-height: 6
+#| fig-alt: |
+#|   Choropleth map of the United States with Alaska and Hawaii repositioned
+#|   for visibility. States are filled by US Census division using the turbo
+#|   color scale, distinguishing nine divisions from New England in the
+#|   northeast to the Pacific division in the west. White state borders and
+#|   a top-positioned legend allow easy identification of each division.
 
 states_with_regions_shifted <- states_with_regions |>
   shift_geometry()
@@ -226,6 +244,7 @@ Use `group_by()` and `summarize()` and `mutate()` to calculate three things in a
 #| echo: false
 #| message: false
 #| ref.label: recreation-data-states-snap
+#| opts.label: true
 ```
 
 **Some hints!**
@@ -256,11 +275,10 @@ Run the code chunk below to see a plot. It shows a map of the United States with
 ```{r fig.path="images/"}
 #| label: recreate-me-plot-state-snap
 #| echo: false
-#| message: false
-#| warning: false
 #| fig-width: 8
 #| fig-height: 6
 #| ref.label: recreation-plot-state-snap
+#| opts.label: true
 ```
 
 Use `left_join()`, `ggplot()` and `geom_sf()` in the chunk below to re-create the plot above using your newly merged `snap_by_state` dataset. **Some hints**:
@@ -278,10 +296,15 @@ Use `left_join()`, `ggplot()` and `geom_sf()` in the chunk below to re-create th
 
 ```{r}
 #| label: recreation-plot-state-snap
-#| message: false
-#| warning: false
 #| fig-width: 6
 #| fig-height: 3.8
+#| fig-alt: |
+#|   Choropleth map of the United States with Alaska and Hawaii repositioned,
+#|   showing the proportion of households receiving SNAP benefits by state.
+#|   The plasma color scale ranges from dark purple (lower proportions) to
+#|   bright yellow (higher proportions), with a percent-formatted legend at
+#|   the bottom. Southern and some Appalachian states tend toward higher
+#|   SNAP usage rates.
 
 states_with_snap <- states |>
   left_join(snap_by_state, by = join_by(STUSPS)) |>
@@ -368,13 +391,8 @@ Run the code chunk below to see a plot. It shows a map of the Mountain division 
 ```{r fig.path="images/"}
 #| label: recreate-me-plot-county-snap
 #| echo: false
-#| message: false
-#| warning: false
-#| fig-width: 4
-#| fig-height: 5
-#| out-width: "80%"
-#| fig-align: "center"
 #| ref.label: recreation-plot-county-snap
+#| opts.label: true
 ```
 
 Use `ggplot()` and `geom_sf()` in the chunk below to create a **similar** plot for a **different** division using the datasets you made earlier. *DO NOT USE THE MOUNTAIN DIVISION*.
@@ -399,7 +417,14 @@ Use `ggplot()` and `geom_sf()` in the chunk below to create a **similar** plot f
 #| fig-width: 4
 #| fig-height: 5
 #| out-width: "80%"
-#| fig-align: "center"
+#| fig-alt: |
+#|   County-level choropleth map of the Mountain division (Arizona, Colorado,
+#|   Idaho, Montana, Nevada, New Mexico, Utah, Wyoming) showing the proportion
+#|   of households receiving SNAP benefits. County borders appear in gray and
+#|   state boundaries in thicker white lines. The plasma color scale ranges
+#|   from dark purple (lower proportions) to bright yellow (higher
+#|   proportions), revealing substantial geographic variation within the
+#|   region.
 
 ggplot() +
   geom_sf(
@@ -453,6 +478,13 @@ Hopefully you did something neat! Here's something I did (and phewww it's comple
 #| warning: false
 #| fig-width: 10
 #| fig-height: 3.63
+#| fig-alt: |
+#|   Map in Equal Earth projection showing six places the author has lived
+#|   between 1984 and the present: Provo (Utah), Rome (Italy), Amman
+#|   (Jordan), Cairo (Egypt), Durham (North Carolina), and Atlanta (Georgia).
+#|   Red curved arrows trace great circle routes between locations in
+#|   chronological order; each city is labeled with its name and the years
+#|   lived there. Light blue ocean and peach landmasses provide the backdrop.
 
 library(tidyverse)
 library(sf)
